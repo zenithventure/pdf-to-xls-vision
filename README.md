@@ -25,12 +25,25 @@ An intelligent Python utility to convert PDF files containing tables into Excel 
 pip install -r requirements.txt
 ```
 
-2. Set up your Anthropic API key:
+2. Set up your configuration:
+   - Copy `.env.sample` to `.env`:
+     ```bash
+     cp .env.sample .env
+     ```
    - Get your API key from: https://console.anthropic.com/
    - Edit the `.env` file and replace `your-api-key-here` with your actual API key:
      ```
      ANTHROPIC_API_KEY=sk-ant-your-actual-key-here
      ```
+   - (Optional) Choose a different Claude model:
+     ```
+     CLAUDE_MODEL=claude-sonnet-4-5-20250929
+     ```
+     Available models:
+     - `claude-sonnet-4-5-20250929` (default, most accurate)
+     - `claude-3-5-sonnet-20241022` (fast, cost-effective)
+     - `claude-3-5-sonnet-20240620` (balanced)
+     - `claude-3-opus-20240229` (highest quality, slower)
 
 ## Usage
 
@@ -135,10 +148,22 @@ Processing page 10/31...
 - Rotation detection requires Tesseract OCR to be installed
 - Install via: `brew install tesseract` (Mac) or `apt-get install tesseract-ocr` (Linux)
 
+## Configuration
+
+### Environment Variables
+
+The tool uses a `.env` file for configuration:
+
+- **ANTHROPIC_API_KEY** (required for image-based PDFs): Your Anthropic API key
+- **CLAUDE_MODEL** (optional): Claude model to use for vision extraction
+  - Default: `claude-sonnet-4-5-20250929`
+  - See Installation section for available models
+
 ## Technical Details
 
 - Uses `pdfplumber` for text extraction
 - Uses `pytesseract` for rotation detection
-- Uses Claude Vision API (Sonnet 4.5) for image-based extraction
+- Uses Claude Vision API for image-based extraction (configurable model)
 - Uses `openpyxl` for Excel file generation
 - Supports incremental saving for large files
+- Automatic model selection based on CLAUDE_MODEL environment variable
