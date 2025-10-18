@@ -64,12 +64,12 @@ python3 pdf_to_xls_vision.py /path/to/pdfs -r -o /path/to/output
 
 Convert all PDFs in a directory:
 ```bash
-python3 pdf_to_xls_vision.py "pdfs/Op Stmts from Rob 10.14.2025" -r
+python3 pdf_to_xls_vision.py "pdfs/OpStmts" -r
 ```
 
 Convert a single file:
 ```bash
-python3 pdf_to_xls_vision.py "pdfs/Op Stmts from Rob 10.14.2025/Meridian TTM 1206.pdf"
+python3 pdf_to_xls_vision.py "pdfs/OpStmts/1206.pdf"
 ```
 
 ## How It Works
