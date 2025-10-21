@@ -25,6 +25,197 @@ import pytesseract
 load_dotenv()
 
 
+# ============================================================================
+# Custom Exceptions
+# ============================================================================
+
+class PDFValidationError(Exception):
+    """Raised when PDF validation fails."""
+    pass
+
+
+class OutputPathError(Exception):
+    """Raised when output path validation fails."""
+    pass
+
+
+# ============================================================================
+# Input Validation
+# ============================================================================
+
+def validate_pdf_file(pdf_path):
+    """Validate that PDF file is readable and processable.
+
+    Args:
+        pdf_path: Path to PDF file
+
+    Raises:
+        FileNotFoundError: If file doesn't exist
+        PDFValidationError: If PDF is invalid, corrupted, or can't be processed
+    """
+    # Check existence
+    if not pdf_path.exists():
+        raise FileNotFoundError(
+            f"PDF file not found: {pdf_path}\n"
+            f"Please check the path and try again."
+        )
+
+    # Check it's a file, not directory
+    if not pdf_path.is_file():
+        raise PDFValidationError(
+            f"Path is not a file: {pdf_path}\n"
+            f"Please provide a path to a PDF file."
+        )
+
+    # Check file size
+    file_size = pdf_path.stat().st_size
+    if file_size == 0:
+        raise PDFValidationError(
+            f"PDF file is empty: {pdf_path}\n"
+            f"File size: 0 bytes"
+        )
+
+    # Warn for very large files
+    if file_size > 100 * 1024 * 1024:  # 100 MB
+        print(
+            f"Warning: Large PDF file: {pdf_path} ({file_size / 1024 / 1024:.1f} MB)\n"
+            f"Processing may take a long time and consume significant API credits."
+        )
+
+    # Check file extension
+    if pdf_path.suffix.lower() != '.pdf':
+        print(
+            f"Warning: File does not have .pdf extension: {pdf_path}\n"
+            f"Attempting to process anyway..."
+        )
+
+    # Validate PDF structure using pdfplumber
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            # Check page count
+            page_count = len(pdf.pages)
+            if page_count == 0:
+                raise PDFValidationError(
+                    f"PDF has no pages: {pdf_path}\n"
+                    f"The PDF may be corrupted or empty."
+                )
+
+            # Attempt to access first page (validates PDF structure)
+            _ = pdf.pages[0]
+
+            print(f"  PDF validated: {page_count} pages")
+
+    except pdfplumber.pdfminer.pdfparser.PDFSyntaxError as e:
+        raise PDFValidationError(
+            f"Invalid PDF syntax: {pdf_path}\n"
+            f"Error: {e}\n"
+            f"The PDF may be corrupted or in an unsupported format."
+        )
+    except pdfplumber.pdfminer.pdfdocument.PDFEncryptionError as e:
+        raise PDFValidationError(
+            f"PDF is password-protected: {pdf_path}\n"
+            f"Error: {e}\n"
+            f"Please remove password protection and try again."
+        )
+    except Exception as e:
+        raise PDFValidationError(
+            f"Cannot read PDF: {pdf_path}\n"
+            f"Error: {e}\n"
+            f"Possible causes:\n"
+            f"  - PDF is password-protected\n"
+            f"  - PDF is corrupted\n"
+            f"  - PDF format is not supported\n"
+            f"  - Insufficient permissions to read file"
+        )
+
+
+def validate_output_path(output_path, overwrite=True):
+    """Validate that output path is writable.
+
+    Args:
+        output_path: Desired output file path
+        overwrite: Whether to allow overwriting existing files (default: True)
+
+    Raises:
+        OutputPathError: If output path is invalid or not writable
+    """
+    # Check parent directory exists
+    parent_dir = output_path.parent
+    if not parent_dir.exists():
+        raise OutputPathError(
+            f"Output directory does not exist: {parent_dir}\n"
+            f"Please create the directory or specify a different path."
+        )
+
+    # Check parent directory is writable
+    if not os.access(parent_dir, os.W_OK):
+        raise OutputPathError(
+            f"No write permission for directory: {parent_dir}\n"
+            f"Please check permissions or specify a different location."
+        )
+
+    # Check if file exists and overwrite not allowed
+    if output_path.exists() and not overwrite:
+        print(
+            f"Warning: Output file already exists: {output_path}\n"
+            f"File will be overwritten."
+        )
+
+    # Check available disk space
+    stat = os.statvfs(parent_dir)
+    free_space = stat.f_bavail * stat.f_frsize
+    if free_space < 10 * 1024 * 1024:  # Less than 10 MB
+        print(
+            f"Warning: Low disk space: {free_space / 1024 / 1024:.1f} MB available\n"
+            f"Excel file creation may fail."
+        )
+
+
+def validate_api_key_if_needed(is_image_based):
+    """Validate API key is available if needed for image-based PDFs.
+
+    Args:
+        is_image_based: Whether the PDF requires Vision API
+
+    Raises:
+        ValueError: If API key is needed but not available
+    """
+    if is_image_based:
+        try:
+            get_api_key()
+        except ValueError as e:
+            raise ValueError(
+                f"{e}\n\n"
+                f"This PDF is image-based (scanned/photos) and requires the Claude Vision API.\n"
+                f"Please configure your API key in the .env file to process this PDF.\n\n"
+                f"Alternatively, if you have a text-based version of this PDF, "
+                f"it can be processed for free without an API key."
+            )
+
+
+def validate_environment():
+    """Validate runtime environment and dependencies.
+
+    Raises:
+        RuntimeError: If environment is not properly configured
+    """
+    # Check Tesseract is available for rotation detection
+    try:
+        pytesseract.get_tesseract_version()
+    except Exception:
+        print(
+            "Warning: Tesseract OCR not found. Rotation detection will be disabled.\n"
+            "Install Tesseract for automatic page rotation correction:\n"
+            "  Mac: brew install tesseract\n"
+            "  Linux: apt-get install tesseract-ocr\n"
+            "  Windows: Download from https://github.com/UB-Mannheim/tesseract/wiki"
+        )
+
+
+# ============================================================================
+# Helper Functions
+# ============================================================================
+
 def get_api_key():
     """Get Anthropic API key from environment."""
     api_key = os.environ.get('ANTHROPIC_API_KEY')
@@ -519,9 +710,11 @@ def convert_pdf_to_xls(pdf_path, output_path=None, output_dir=None, save_every=1
     """
     pdf_path = Path(pdf_path)
 
-    if not pdf_path.exists():
-        raise FileNotFoundError(f"PDF file not found: {pdf_path}")
+    # === VALIDATION PHASE ===
+    # 1. Validate input PDF
+    validate_pdf_file(pdf_path)
 
+    # 2. Determine output path
     if output_path:
         output_path = Path(output_path)
     else:
@@ -532,12 +725,20 @@ def convert_pdf_to_xls(pdf_path, output_path=None, output_dir=None, save_every=1
             output_dir = pdf_path.parent
         output_path = output_dir / f"{pdf_path.stem}.xlsx"
 
+    # 3. Validate output path
+    validate_output_path(output_path)
+
+    # 4. Check PDF type
+    is_image_based = pdf_is_image_based(pdf_path)
+
+    # 5. Validate API key if needed
+    validate_api_key_if_needed(is_image_based)
+
+    # === PROCESSING PHASE ===
     print(f"Converting: {pdf_path}")
     print(f"Output: {output_path}")
 
     try:
-        # Check if PDF is image-based (scanned/photos)
-        is_image_based = pdf_is_image_based(pdf_path)
 
         if is_image_based:
             # Image-based PDF: use Vision API with rotation detection
@@ -658,17 +859,14 @@ def main():
                        help="Recursively search subdirectories")
 
     args = parser.parse_args()
+
+    # Validate environment on startup
+    validate_environment()
+
     input_path = Path(args.input)
 
     if not input_path.exists():
         print(f"Error: Path not found: {input_path}")
-        sys.exit(1)
-
-    # Check for API key
-    try:
-        get_api_key()
-    except ValueError as e:
-        print(f"Error: {e}")
         sys.exit(1)
 
     try:
@@ -683,6 +881,15 @@ def main():
 
     except KeyboardInterrupt:
         print("\nConversion cancelled by user")
+        sys.exit(1)
+    except PDFValidationError as e:
+        print(f"\nPDF Validation Error: {e}")
+        sys.exit(1)
+    except OutputPathError as e:
+        print(f"\nOutput Path Error: {e}")
+        sys.exit(1)
+    except ValueError as e:
+        print(f"\nConfiguration Error: {e}")
         sys.exit(1)
     except Exception as e:
         print(f"\nError: {e}")
