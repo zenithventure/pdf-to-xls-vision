@@ -605,9 +605,130 @@ def _save_excel_incremental(tables, output_path, current_page, total_pages):
         print(f"  Warning: Could not save progress: {e}")
 
 
+def detect_quality_issues(table_data):
+    """Detect signs of poor table extraction quality.
+
+    Returns a list of detected quality issues (empty list if no issues).
+
+    Quality heuristics:
+    1. Single column trap: Flag if table has only 1 column with multiple rows
+    2. Row explosion: Flag if row count is suspiciously high (>50 rows with other issues)
+    3. Column consistency: Flag if >30% of rows have different column counts
+    4. Empty cells ratio: Flag if >50% of cells are empty
+    5. Duplicate rows: Flag if >20% of rows are duplicates
+    6. Garbled text: Flag if >10% of cells contain encoding/parsing errors
+    """
+    issues = []
+
+    if table_data is None or (isinstance(table_data, list) and len(table_data) == 0):
+        return issues
+
+    # Convert table_data to dataframe if it's a raw table
+    if isinstance(table_data, list):
+        try:
+            df = pd.DataFrame(table_data[1:], columns=table_data[0])
+        except:
+            return ["Could not parse table data"]
+    else:
+        df = table_data
+
+    if df.empty:
+        return issues
+
+    num_rows = len(df)
+    num_cols = len(df.columns)
+
+    # Heuristic 1: Single column trap with multiple rows (likely parsing failure)
+    # Single column is only suspicious if there are multiple rows (>3)
+    if num_cols == 1 and num_rows > 3:
+        issues.append(f"Single column table with {num_rows} rows (likely parsing error)")
+
+    # Heuristic 2: Row explosion (suspiciously high row count)
+    # More nuanced: only flag if BOTH high row count AND other suspicious patterns
+    row_explosion_detected = False
+    if num_rows > 70:
+        # Very high threshold - definitely suspicious
+        issues.append(f"Excessive row count ({num_rows} rows, likely incorrect parsing)")
+        row_explosion_detected = True
+    elif num_rows > 50:
+        # Medium threshold - only flag if combined with narrow columns or high emptiness
+        # Check if columns are suspiciously narrow (suggests over-splitting)
+        if num_cols > 12:
+            issues.append(f"Excessive row count ({num_rows} rows) with many columns ({num_cols}), likely incorrect parsing")
+            row_explosion_detected = True
+
+    # Heuristic 3: Check column count consistency across rows
+    # Count non-null values in each row as a proxy for effective column count
+    row_col_counts = df.notna().sum(axis=1)
+    if len(row_col_counts) > 0:
+        most_common_count = row_col_counts.mode()[0] if len(row_col_counts.mode()) > 0 else num_cols
+        inconsistent_rows = (row_col_counts != most_common_count).sum()
+        inconsistency_ratio = inconsistent_rows / len(row_col_counts)
+
+        if inconsistency_ratio > 0.3:
+            issues.append(f"Inconsistent column counts ({inconsistency_ratio:.1%} of rows differ)")
+
+    # Heuristic 4: Empty cells ratio
+    # Only flag if table is large and mostly empty (suggests phantom rows/columns)
+    total_cells = num_rows * num_cols
+    empty_cells = df.isna().sum().sum()
+    empty_ratio = empty_cells / total_cells if total_cells > 0 else 0
+
+    # Stricter threshold for smaller tables, looser for larger ones
+    empty_threshold = 0.6 if num_rows < 20 else 0.5
+    if empty_ratio > empty_threshold:
+        issues.append(f"High empty cell ratio ({empty_ratio:.1%} empty cells)")
+
+    # Heuristic 5: Duplicate rows detection
+    # pdfplumber often repeats rows when parsing fails
+    if num_rows > 5:  # Only check tables with enough rows
+        # Convert to string representation for comparison (handles NaN properly)
+        df_str = df.astype(str)
+        duplicated_rows = df_str.duplicated(keep='first').sum()
+        duplicate_ratio = duplicated_rows / num_rows if num_rows > 0 else 0
+
+        if duplicate_ratio > 0.2:  # More than 20% duplicates
+            issues.append(f"High duplicate row ratio ({duplicate_ratio:.1%} of rows are duplicates, {duplicated_rows}/{num_rows} rows)")
+
+    # Heuristic 6: Check for garbled text patterns (encoding issues, random characters)
+    # Look for cells with unusual character patterns that suggest OCR/parsing errors
+    import re
+    garbled_count = 0
+    sample_size = min(100, total_cells)  # Sample up to 100 cells
+    cells_checked = 0
+
+    for col in df.columns:
+        for val in df[col].head(20):  # Check first 20 values per column
+            if pd.notna(val) and isinstance(val, str):
+                cells_checked += 1
+                # Check for: excessive special chars, mixed scripts, control chars
+                if re.search(r'[^\x20-\x7E\u00A0-\u024F\u20A0-\u20CF]{3,}', str(val)):  # Non-printable chars
+                    garbled_count += 1
+                elif len(val) > 5 and re.search(r'[^\w\s$,.%()\-\'/]{3,}', str(val)):  # Excessive special chars
+                    garbled_count += 1
+
+            if cells_checked >= sample_size:
+                break
+        if cells_checked >= sample_size:
+            break
+
+    if cells_checked > 0 and garbled_count / cells_checked > 0.1:
+        issues.append(f"Garbled text detected ({garbled_count}/{cells_checked} cells)")
+
+    return issues
+
+
 def extract_tables_from_text_pdf(pdf_path):
-    """Extract tables from text-based PDF using pdfplumber."""
+    """Extract tables from text-based PDF using pdfplumber with quality validation.
+
+    Returns:
+        tuple: (tables, quality_issues_detected)
+            - tables: List of extracted table dictionaries
+            - quality_issues_detected: Boolean indicating if any quality issues were found
+    """
     tables = []
+    pages_with_issues = []
+    all_quality_issues = []
 
     with pdfplumber.open(pdf_path) as pdf:
         for page_num, page in enumerate(pdf.pages, start=1):
@@ -634,19 +755,35 @@ def extract_tables_from_text_pdf(pdf_path):
                             df = df.dropna(how='all').dropna(axis=1, how='all')
 
                             if not df.empty:
+                                # Check for quality issues
+                                issues = detect_quality_issues(df)
+
+                                if issues:
+                                    pages_with_issues.append(page_num)
+                                    all_quality_issues.extend(issues)
+                                    print(f"  Page {page_num}, Table {table_num}: {len(df)} rows x {len(df.columns)} columns ⚠️  Quality issues detected")
+                                    for issue in issues:
+                                        print(f"    - {issue}")
+                                else:
+                                    print(f"  Page {page_num}, Table {table_num}: {len(df)} rows x {len(df.columns)} columns")
+
                                 tables.append({
                                     'dataframe': df,
                                     'page': page_num,
                                     'table': table_num
                                 })
-                                print(f"  Page {page_num}, Table {table_num}: {len(df)} rows x {len(df.columns)} columns")
                         except Exception as e:
                             print(f"  Warning: Could not process table on page {page_num}: {e}")
 
-    return tables
+    quality_issues_detected = len(pages_with_issues) > 0
+
+    if quality_issues_detected:
+        print(f"\n  ⚠️  Quality issues detected on {len(set(pages_with_issues))} page(s)")
+
+    return tables, quality_issues_detected
 
 
-def convert_pdf_to_xls(pdf_path, output_path=None, output_dir=None, save_every=10):
+def convert_pdf_to_xls(pdf_path, output_path=None, output_dir=None, save_every=10, force_vision=False):
     """Convert PDF to Excel. Uses text extraction for text-based PDFs, Vision API with rotation detection for image-based PDFs.
 
     Args:
@@ -654,6 +791,7 @@ def convert_pdf_to_xls(pdf_path, output_path=None, output_dir=None, save_every=1
         output_path: Optional output Excel file path
         output_dir: Optional output directory
         save_every: For large PDFs, save progress every N pages (default: 10)
+        force_vision: Force Vision API extraction even for text-based PDFs (default: False)
     """
     pdf_path = Path(pdf_path)
 
@@ -677,9 +815,12 @@ def convert_pdf_to_xls(pdf_path, output_path=None, output_dir=None, save_every=1
         # Check if PDF is image-based (scanned/photos)
         is_image_based = pdf_is_image_based(pdf_path)
 
-        if is_image_based:
-            # Image-based PDF: use Vision API with rotation detection
-            print("  Image-based PDF detected, using Vision API with rotation detection...")
+        if force_vision or is_image_based:
+            # Image-based PDF or forced Vision API: use Vision API with rotation detection
+            if force_vision and not is_image_based:
+                print("  Text-based PDF, using Vision API (forced)...")
+            else:
+                print("  Image-based PDF detected, using Vision API with rotation detection...")
             api_key = get_api_key()
             model_name = get_model_name()
             client = anthropic.Anthropic(api_key=api_key)
@@ -687,7 +828,16 @@ def convert_pdf_to_xls(pdf_path, output_path=None, output_dir=None, save_every=1
         else:
             # Text-based PDF: use direct extraction (fast, no API needed)
             print("  Text-based PDF, using direct extraction...")
-            tables = extract_tables_from_text_pdf(pdf_path)
+            tables, quality_issues_detected = extract_tables_from_text_pdf(pdf_path)
+
+            # Option 1: Auto-retry with Vision API if quality issues detected
+            if quality_issues_detected:
+                print("\n  ⚠️  Quality issues detected in text extraction!")
+                print("  🔄 Retrying with Vision API for better accuracy...\n")
+                api_key = get_api_key()
+                model_name = get_model_name()
+                client = anthropic.Anthropic(api_key=api_key)
+                tables = extract_table_with_claude_vision(pdf_path, client, model_name, output_path, save_every)
 
         if not tables:
             print(f"Warning: No tables found in {pdf_path}")
@@ -758,8 +908,15 @@ def convert_pdf_to_xls(pdf_path, output_path=None, output_dir=None, save_every=1
         raise
 
 
-def batch_convert_directory(input_dir, output_dir=None, recursive=False):
-    """Batch convert PDFs in directory. Auto-detects text vs image-based PDFs."""
+def batch_convert_directory(input_dir, output_dir=None, recursive=False, force_vision=False):
+    """Batch convert PDFs in directory. Auto-detects text vs image-based PDFs.
+
+    Args:
+        input_dir: Directory containing PDF files
+        output_dir: Optional output directory
+        recursive: Recursively search subdirectories
+        force_vision: Force Vision API extraction for all PDFs
+    """
     input_dir = Path(input_dir)
 
     if not input_dir.exists():
@@ -790,7 +947,7 @@ def batch_convert_directory(input_dir, output_dir=None, recursive=False):
             else:
                 out_dir = output_dir or pdf_path.parent
 
-            result = convert_pdf_to_xls(pdf_path, output_dir=out_dir)
+            result = convert_pdf_to_xls(pdf_path, output_dir=out_dir, force_vision=force_vision)
             if result:
                 success_count += 1
             print("=" * 70)
@@ -817,6 +974,8 @@ def main():
     parser.add_argument("-o", "--output", help="Output file or directory")
     parser.add_argument("-r", "--recursive", action="store_true",
                        help="Recursively search subdirectories")
+    parser.add_argument("--force-vision", action="store_true",
+                       help="Force Vision API extraction even for text-based PDFs (useful for complex table layouts)")
 
     args = parser.parse_args()
     input_path = Path(args.input)
@@ -834,10 +993,10 @@ def main():
 
     try:
         if input_path.is_file():
-            convert_pdf_to_xls(input_path, output_path=args.output)
+            convert_pdf_to_xls(input_path, output_path=args.output, force_vision=args.force_vision)
         elif input_path.is_dir():
             batch_convert_directory(input_path, output_dir=args.output,
-                                   recursive=args.recursive)
+                                   recursive=args.recursive, force_vision=args.force_vision)
         else:
             print(f"Error: Invalid path: {input_path}")
             sys.exit(1)
