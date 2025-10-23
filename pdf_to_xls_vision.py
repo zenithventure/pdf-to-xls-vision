@@ -346,14 +346,32 @@ def extract_table_with_claude_vision(pdf_path, client, model_name, output_path=N
                                         "text": """Extract all tabular data from this image and return it as a CSV format.
 
 Requirements:
-1. Preserve all rows and columns exactly as they appear
+1. Preserve all rows and columns exactly as they appear, including:
+   - Total/summary rows with their FULL labels (e.g., "Total Other Income", "Gross Potential Income", "Effective Gross Income (EGI)", "Utilities Total", "Total Expenses", "Net Operating Income (NOI)")
+   - ALL breakdown/sub-item rows (e.g., "Parking", "Utility Reimbursement", "Pet Fee")
+   - Indented or hierarchical items must be included as separate rows
 2. Keep all numbers, text, and formatting characters
 3. Use commas to separate columns
 4. Put values with commas inside quotes
 5. Include column headers if present
-6. Return ONLY the CSV data, no explanation
+6. Add a "Row_Type" column as the FIRST column to indicate the type of each row:
+   - Use "ROLLUP" for rows that contain words like "Total", "Gross", "Net", "Effective" and represent sums (e.g., "Total Other Income", "Total Expenses", "Net Operating Income")
+   - Use "DETAIL" for individual line items that are not totals
+   - Use "HEADER" for header/section title rows
+7. CRITICAL: Look for notes, annotations, or text outside/beside the main table columns:
+   - If you see a "NOTES AND ASSUMPTIONS" section or numbered notes on the side, create a "Notes" column as the LAST column
+   - Add the full text of each note to its corresponding row ONLY if the note specifically references that row
+   - If a note is general context (not tied to a specific row), leave the Notes column empty for that row
+   - Include ALL text content visible in the image, not just the numeric table data
+8. Return ONLY the CSV data, no explanation
 
-If there are multiple tables, extract the largest/main table."""
+IMPORTANT:
+- Do NOT skip breakdown items or sub-categories. Every line item visible in the table must appear in the output.
+- Do NOT skip total/rollup rows. These are CRITICAL and must include their full labels with all numbers.
+- Do NOT skip text annotations, notes, or explanatory text. All text content should be captured.
+- Clearly mark which rows are ROLLUP totals vs DETAIL items using the Row_Type column.
+
+If there are multiple tables, extract the largest/main table and any associated notes."""
                                     }
                                 ],
                             }
@@ -368,14 +386,16 @@ If there are multiple tables, extract the largest/main table."""
                         lines = csv_content.split('\n')
                         csv_content = '\n'.join(lines[1:-1]) if len(lines) > 2 else csv_content
 
-                    if csv_content and len(csv_content) > 50:
-                        # Parse CSV into DataFrame with error handling
+                    # Improved validation: Check if content is valid CSV with actual table data
+                    if csv_content and csv_content.strip():
+                        # Try to parse as CSV to validate it's actual table data
                         from io import StringIO
+                        df = None
                         try:
                             # Try standard CSV parsing
                             df = pd.read_csv(StringIO(csv_content))
                         except Exception as e:
-                            # If CSV parsing fails, try with error_bad_lines=False
+                            # If CSV parsing fails, try with on_bad_lines='skip'
                             try:
                                 df = pd.read_csv(StringIO(csv_content), on_bad_lines='skip')
                             except:
@@ -386,32 +406,38 @@ If there are multiple tables, extract the largest/main table."""
                                     print(f"    CSV parsing error on page {page_num}: {e}")
                                     continue
 
-                        # Clean up
-                        df = df.dropna(how='all').dropna(axis=1, how='all')
+                        # Check if it has at least one cell of data
+                        if df is not None and not df.empty and df.shape[0] > 0 and df.shape[1] > 0:
+                            # Valid table - proceed with data cleaning
 
-                        # Fix typewriter parenthesis artifacts (only after successful parsing)
-                        # This fixes values like "3,094)(" -> "(3,094)"
-                        try:
-                            df = clean_dataframe_parentheses(df)
-                        except Exception as e:
-                            print(f"    Warning: Could not clean cascading parentheses: {e}")
+                            # Clean up
+                            df = df.dropna(how='all').dropna(axis=1, how='all')
 
-                        # Fix malformed parentheses within individual cells
-                        # This fixes OCR errors like "( 297)" -> "(297)" and "( 4410" -> "(4410)"
-                        try:
-                            df = clean_malformed_parentheses(df)
-                        except Exception as e:
-                            print(f"    Warning: Could not clean malformed parentheses: {e}")
+                            # Fix typewriter parenthesis artifacts (only after successful parsing)
+                            # This fixes values like "3,094)(" -> "(3,094)"
+                            try:
+                                df = clean_dataframe_parentheses(df)
+                            except Exception as e:
+                                print(f"    Warning: Could not clean cascading parentheses: {e}")
 
-                        if not df.empty and len(df) > 0:
-                            tables.append({
-                                'dataframe': df,
-                                'page': page_num,
-                                'table': 1
-                            })
-                            print(f"    ✓ Extracted table: {len(df)} rows x {len(df.columns)} columns")
+                            # Fix malformed parentheses within individual cells
+                            # This fixes OCR errors like "( 297)" -> "(297)" and "( 4410" -> "(4410)"
+                            try:
+                                df = clean_malformed_parentheses(df)
+                            except Exception as e:
+                                print(f"    Warning: Could not clean malformed parentheses: {e}")
+
+                            if not df.empty and len(df) > 0:
+                                tables.append({
+                                    'dataframe': df,
+                                    'page': page_num,
+                                    'table': 1
+                                })
+                                print(f"    ✓ Extracted table: {len(df)} rows x {len(df.columns)} columns")
+                            else:
+                                print(f"    No valid table data on page {page_num}")
                         else:
-                            print(f"    No valid table data on page {page_num}")
+                            print(f"    No table content found on page {page_num}")
                     else:
                         print(f"    No table content found on page {page_num}")
 
@@ -429,6 +455,118 @@ If there are multiple tables, extract the largest/main table."""
         traceback.print_exc()
 
     return tables
+
+
+def identify_rollup_rows(df):
+    """Identify rollup rows based on naming patterns and Row_Type column."""
+    rollup_indicators = ['total', 'gross', 'effective', 'net operating income', 'noi']
+    rollup_rows = []
+
+    # Check if Row_Type column exists
+    if 'Row_Type' in df.columns:
+        for idx in df.index:
+            row_type = df.at[idx, 'Row_Type']
+            if pd.notna(row_type) and str(row_type).strip().upper() == 'ROLLUP':
+                rollup_rows.append(idx)
+    else:
+        # Fallback: identify by naming patterns
+        first_col = df.columns[0]
+        for idx in df.index:
+            value = df.at[idx, first_col]
+            if pd.notna(value):
+                value_lower = str(value).lower().strip()
+                if any(indicator in value_lower for indicator in rollup_indicators):
+                    rollup_rows.append(idx)
+
+    return rollup_rows
+
+
+def add_rollup_formulas(df, ws, rollup_rows):
+    """Add Excel formulas for rollup rows that sum their component rows."""
+    # Find label column names (usually first non-Row_Type column that contains text)
+    label_cols = ['Row_Type', 'INCOME', 'Category', 'EXPENSES', 'Subcategory', 'Description', 'Item']
+
+    # Find numeric columns (columns with currency/number patterns, exclude Row_Type, labels, and Notes)
+    numeric_cols = []
+    for col in df.columns:
+        # Skip if it's a label column or Notes
+        if col in label_cols or col in ['Notes', 'notes', 'Note']:
+            continue
+        # Check if column contains numeric-looking data (currency signs, numbers, percentages)
+        sample_values = df[col].dropna().head(5).astype(str)
+        if any(any(char in str(val) for char in ['$', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '%', ',']) for val in sample_values):
+            numeric_cols.append(col)
+
+    for rollup_idx in rollup_rows:
+        # Find the range of detail rows
+        # Strategy: Look forward first (for breakdowns that come AFTER the total row)
+        # If none found, look backward (for totals that come AFTER detail rows)
+        start_detail_idx = None
+        end_detail_idx = None
+
+        # Try looking forward first (for cases like "Total Other Income" followed by "Parking", "Utility", etc.)
+        for i in range(rollup_idx + 1, len(df)):
+            if 'Row_Type' in df.columns:
+                row_type = df.at[i, 'Row_Type']
+                if pd.notna(row_type):
+                    row_type_str = str(row_type).strip().upper()
+                    if row_type_str == 'DETAIL':
+                        if start_detail_idx is None:
+                            start_detail_idx = i
+                        end_detail_idx = i
+                    elif row_type_str in ['ROLLUP', 'HEADER']:
+                        # Stop at next rollup or header
+                        break
+
+        # If no forward details found, look backwards (for cases like detail rows followed by "Total")
+        if start_detail_idx is None:
+            for i in range(rollup_idx - 1, -1, -1):
+                if 'Row_Type' in df.columns:
+                    row_type = df.at[i, 'Row_Type']
+                    if pd.notna(row_type):
+                        row_type_str = str(row_type).strip().upper()
+                        if row_type_str == 'DETAIL':
+                            if end_detail_idx is None:
+                                end_detail_idx = i
+                            start_detail_idx = i
+                        elif row_type_str in ['ROLLUP', 'HEADER']:
+                            # Stop at previous rollup or header
+                            break
+
+        if start_detail_idx is not None and end_detail_idx is not None:
+            # Add formulas for each numeric column ONLY
+            for col_idx, col_name in enumerate(df.columns):
+                if col_name in numeric_cols:
+                    # Excel row is +2 (1-indexed + header row)
+                    excel_row = rollup_idx + 2
+                    excel_start_row = start_detail_idx + 2
+                    excel_end_row = end_detail_idx + 2
+
+                    # Convert column index to Excel column letter
+                    from openpyxl.utils import get_column_letter
+                    excel_col = get_column_letter(col_idx + 1)
+
+                    # Create SUM formula
+                    formula = f"=SUM({excel_col}{excel_start_row}:{excel_col}{excel_end_row})"
+                    ws.cell(row=excel_row, column=col_idx + 1, value=formula)
+
+
+def extract_general_notes(df):
+    """Extract notes that are not tied to specific rows (for separate Notes tab)."""
+    general_notes = []
+
+    if 'Notes' in df.columns:
+        # Look for notes in header or standalone rows
+        for idx in df.index:
+            note = df.at[idx, 'Notes']
+            if pd.notna(note):
+                # Check if this is a general note (in a HEADER row or standalone)
+                if 'Row_Type' in df.columns:
+                    row_type = df.at[idx, 'Row_Type']
+                    if pd.notna(row_type) and str(row_type).strip().upper() == 'HEADER':
+                        general_notes.append(note)
+
+    return general_notes
 
 
 def _save_excel_incremental(tables, output_path, current_page, total_pages):
@@ -561,10 +699,22 @@ def convert_pdf_to_xls(pdf_path, output_path=None, output_dir=None, save_every=1
         if 'Sheet' in wb.sheetnames:
             wb.remove(wb['Sheet'])
 
+        all_general_notes = []
+
         for idx, table_data in enumerate(tables, start=1):
             df = table_data['dataframe']
             page_num = table_data['page']
             table_num = table_data['table']
+
+            # Identify rollup rows (for display purposes only, not for formulas)
+            rollup_rows = identify_rollup_rows(df)
+            if rollup_rows:
+                print(f"  Identified {len(rollup_rows)} rollup row(s) with total values")
+
+            # Extract general notes before creating sheet
+            general_notes = extract_general_notes(df)
+            if general_notes:
+                all_general_notes.extend([(page_num, note) for note in general_notes])
 
             if len(tables) == 1:
                 sheet_name = "Sheet1"
@@ -579,11 +729,22 @@ def convert_pdf_to_xls(pdf_path, output_path=None, output_dir=None, save_every=1
 
             ws = wb.create_sheet(title=sheet_name)
 
+            # Write data to worksheet (with original values, no formulas)
             for r_idx, row in enumerate(dataframe_to_rows(df, index=False, header=True), start=1):
                 for c_idx, value in enumerate(row, start=1):
                     ws.cell(row=r_idx, column=c_idx, value=value)
 
             print(f"  Sheet {idx}: {sheet_name} (Page {page_num}, {len(df)} rows x {len(df.columns)} columns)")
+
+        # Create separate Notes tab if there are general notes
+        if all_general_notes:
+            notes_ws = wb.create_sheet(title="Notes")
+            notes_ws.cell(row=1, column=1, value="Page")
+            notes_ws.cell(row=1, column=2, value="Note")
+            for note_idx, (page_num, note) in enumerate(all_general_notes, start=2):
+                notes_ws.cell(row=note_idx, column=1, value=f"Page {page_num}")
+                notes_ws.cell(row=note_idx, column=2, value=note)
+            print(f"  ✓ Created Notes tab with {len(all_general_notes)} general note(s)")
 
         wb.save(output_path)
         print(f"✓ Successfully created: {output_path}\n")
