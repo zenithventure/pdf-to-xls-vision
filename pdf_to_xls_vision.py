@@ -465,18 +465,30 @@ def identify_rollup_rows(df):
     # Check if Row_Type column exists
     if 'Row_Type' in df.columns:
         for idx in df.index:
-            row_type = df.at[idx, 'Row_Type']
-            if pd.notna(row_type) and str(row_type).strip().upper() == 'ROLLUP':
-                rollup_rows.append(idx)
+            try:
+                row_type = df.loc[idx, 'Row_Type']
+                # Handle case where loc returns a Series
+                if isinstance(row_type, pd.Series):
+                    row_type = row_type.iloc[0] if len(row_type) > 0 else None
+                if pd.notna(row_type) and str(row_type).strip().upper() == 'ROLLUP':
+                    rollup_rows.append(idx)
+            except (KeyError, IndexError):
+                continue
     else:
         # Fallback: identify by naming patterns
         first_col = df.columns[0]
         for idx in df.index:
-            value = df.at[idx, first_col]
-            if pd.notna(value):
-                value_lower = str(value).lower().strip()
-                if any(indicator in value_lower for indicator in rollup_indicators):
-                    rollup_rows.append(idx)
+            try:
+                value = df.loc[idx, first_col]
+                # Handle case where loc returns a Series
+                if isinstance(value, pd.Series):
+                    value = value.iloc[0] if len(value) > 0 else None
+                if pd.notna(value):
+                    value_lower = str(value).lower().strip()
+                    if any(indicator in value_lower for indicator in rollup_indicators):
+                        rollup_rows.append(idx)
+            except (KeyError, IndexError):
+                continue
 
     return rollup_rows
 
