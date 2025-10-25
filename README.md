@@ -21,7 +21,15 @@ An intelligent Python library to convert PDF files containing tables into Excel 
 
 ## Installation
 
-### Install as a Python package
+### Install from PyPI (Recommended)
+
+The easiest way to install:
+
+```bash
+pip install pdf-to-xls-vision
+```
+
+### Install from Source (for development)
 
 ```bash
 # Clone the repository
@@ -30,9 +38,6 @@ cd pdf-to-xls-vision
 
 # Install in development mode
 pip install -e .
-
-# Or install from PyPI (when published)
-pip install pdf-to-xls-vision
 ```
 
 ### Configuration
