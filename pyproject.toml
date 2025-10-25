@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "setuptools_scm>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pdf-to-xls-vision"
+version = "1.0.0"
+description = "Convert PDF tables to Excel using Claude Vision API with automatic rotation detection"
+readme = "README.md"
+requires-python = ">=3.7"
+license = {text = "MIT"}
+authors = [
+    {name = "Your Name", email = "your.email@example.com"}
+]
+keywords = ["pdf", "excel", "conversion", "vision-api", "claude", "anthropic", "ocr", "table-extraction"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Office/Business",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "pdfplumber>=0.10.0",
+    "pandas>=2.0.0",
+    "openpyxl>=3.1.0",
+    "anthropic>=0.69.0",
+    "python-dotenv>=1.0.0",
+    "pdf2image>=1.17.0",
+    "pillow>=9.1.0",
+    "pytesseract>=0.3.10",
+    "PyMuPDF>=1.23.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/pdf-to-xls-vision"
+Documentation = "https://github.com/yourusername/pdf-to-xls-vision#readme"
+Repository = "https://github.com/yourusername/pdf-to-xls-vision"
+"Bug Tracker" = "https://github.com/yourusername/pdf-to-xls-vision/issues"
+
+[project.scripts]
+pdf-to-xls = "pdf_to_xls_cli:main"
+
+[tool.setuptools]
+packages = ["pdf_to_xls"]
+
+[tool.setuptools.package-data]
+pdf_to_xls = ["py.typed"]
