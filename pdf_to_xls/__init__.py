@@ -22,7 +22,7 @@ from .config import get_api_key, get_model_name
 from .pdf_detection import pdf_has_text, pdf_is_image_based
 from .quality_check import detect_quality_issues
 
-__version__ = '1.0.0'
+__version__ = '1.0.1'
 
 __all__ = [
     'convert_pdf_to_excel',
