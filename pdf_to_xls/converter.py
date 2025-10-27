@@ -81,10 +81,14 @@ def convert_pdf_to_excel(
             print("  Text-based PDF, using direct extraction...")
             tables, quality_issues_detected = extract_tables_from_text_pdf(pdf_path)
 
-            # Auto-retry with Vision API if quality issues detected
-            if quality_issues_detected:
-                print("\n  ⚠️  Quality issues detected in text extraction!")
-                print("  🔄 Retrying with Vision API for better accuracy...\n")
+            # Auto-retry with Vision API if quality issues detected OR no tables found
+            if quality_issues_detected or not tables:
+                if quality_issues_detected:
+                    print("\n  ⚠️  Quality issues detected in text extraction!")
+                    print("  🔄 Retrying with Vision API for better accuracy...\n")
+                else:
+                    print("\n  ⚠️  No tables found with text extraction!")
+                    print("  🔄 Retrying with Vision API...\n")
 
                 # Get API configuration
                 if not api_key:
