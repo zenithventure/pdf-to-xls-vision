@@ -19,10 +19,10 @@ if requirements_file.exists():
 
 setup(
     name="pdf-to-xls-vision",
-    version="1.0.1",
+    version="1.0.2",
     author="Your Name",
     author_email="your.email@example.com",
-    description="Convert PDF tables to Excel using Claude Vision API with automatic rotation detection",
+    description="Convert PDF and image tables to Excel using Claude Vision API with automatic rotation detection",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/yourusername/pdf-to-xls-vision",
