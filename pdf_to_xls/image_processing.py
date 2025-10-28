@@ -2,6 +2,7 @@
 
 import base64
 from io import BytesIO
+from pathlib import Path
 import fitz  # PyMuPDF
 from PIL import Image
 import pytesseract
@@ -35,6 +36,55 @@ def detect_orientation(img):
     except Exception:
         # If OSD fails, return 0 (no rotation)
         return 0, 0
+
+
+def convert_image_file_to_base64(image_path):
+    """Convert an image file to base64-encoded PNG.
+
+    Automatically detects and corrects image orientation.
+
+    Args:
+        image_path: Path to the image file (.jpg, .jpeg, .png, .tiff, .tif)
+
+    Returns:
+        str: Base64-encoded PNG image data, or None if conversion fails
+    """
+    try:
+        image_path = Path(image_path)
+
+        # Open image file
+        img = Image.open(image_path)
+
+        # Convert to RGB if necessary (for TIFF, etc.)
+        if img.mode not in ('RGB', 'L', 'RGBA'):
+            img = img.convert('RGB')
+
+        # Detect actual visual orientation using OCR
+        detected_rotation, confidence = detect_orientation(img)
+
+        # Apply rotation correction if needed (only if confidence is reasonable)
+        if detected_rotation != 0 and confidence > 1.0:
+            # Rotation direction conversion:
+            # - Tesseract OSD "Rotate" value = degrees to rotate CLOCKWISE to correct orientation
+            # - PIL's rotate() method rotates COUNTER-CLOCKWISE by default
+            # - Therefore: PIL_angle = -Tesseract_angle to convert conventions
+            # - expand=True ensures the canvas expands to fit the rotated image without cropping
+            img = img.rotate(-detected_rotation, expand=True)
+            print(f"    Detected rotation {detected_rotation}° (confidence: {confidence:.1f}) - correcting")
+
+        # Convert PIL Image to PNG bytes
+        output = BytesIO()
+        img.save(output, format='PNG')
+        final_img_data = output.getvalue()
+
+        # Encode to base64
+        return base64.standard_b64encode(final_img_data).decode('utf-8')
+
+    except Exception as e:
+        print(f"    Error converting image to base64: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
 
 
 def convert_pdf_page_to_image(pdf_path, page_num):
