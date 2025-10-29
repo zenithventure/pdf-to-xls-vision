@@ -106,10 +106,47 @@ def validate_extracted_data(pdf_path, tables, output_path=None):
     pdf_numbers_by_page = extract_numbers_from_pdf(pdf_path)
 
     if not pdf_numbers_by_page:
-        return {
+        # Generate report even when validation is skipped
+        report = {
             'status': 'skipped',
             'message': 'Could not extract text from PDF for validation'
         }
+
+        if output_path:
+            output_path = Path(output_path)
+            # Change extension to .md
+            output_path = output_path.parent / f"{output_path.stem}.md"
+
+            report_lines = []
+            report_lines.append("# Data Validation Report")
+            report_lines.append("")
+            report_lines.append(f"**Source PDF:** `{pdf_path.name}`")
+            report_lines.append("")
+            report_lines.append("## ⚠️ Validation Skipped")
+            report_lines.append("")
+            report_lines.append("**Reason:** Could not extract text from PDF for validation.")
+            report_lines.append("")
+            report_lines.append("This typically occurs when:")
+            report_lines.append("- The PDF is purely image-based (scanned document)")
+            report_lines.append("- The PDF has no text layer")
+            report_lines.append("- An error occurred during text extraction")
+            report_lines.append("")
+            report_lines.append("## 📋 Recommendation")
+            report_lines.append("")
+            report_lines.append("Please manually verify the extracted data against the source PDF.")
+            report_lines.append("Since automatic validation was not possible, careful review is recommended.")
+            report_lines.append("")
+            report_lines.append("---")
+            report_lines.append("")
+            report_lines.append(f"*Report generated automatically by pdf-to-xls-vision*")
+
+            # Write report
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write('\n'.join(report_lines))
+
+            print(f"  ⚠️  Validation skipped - see report: {output_path}")
+
+        return report
 
     # Collect all PDF numbers
     all_pdf_numbers = []

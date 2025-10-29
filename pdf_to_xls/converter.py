@@ -154,6 +154,9 @@ def convert_pdf_to_excel(
                 discrepancies = validation_result['discrepancies']
                 if discrepancies['missing_in_tables'] or discrepancies['extra_in_tables']:
                     print(f"  ⚠️  Found discrepancies - see validation report for details")
+            elif validation_result['status'] == 'skipped':
+                # Message already printed by validate_extracted_data()
+                pass
 
         # Create Excel file
         return create_excel_file(tables, output_path)
