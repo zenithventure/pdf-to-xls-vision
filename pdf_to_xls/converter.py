@@ -7,6 +7,7 @@ from .config import get_api_key, get_model_name
 from .pdf_detection import pdf_is_image_based
 from .table_extraction import extract_table_with_claude_vision, extract_tables_from_text_pdf, extract_table_from_image
 from .excel_writer import create_excel_file, merge_continuation_tables
+from .validation import validate_extracted_data
 
 
 # Supported image file extensions
@@ -136,6 +137,23 @@ def convert_pdf_to_excel(
 
         # Merge continuation tables (tables that span multiple pages)
         tables = merge_continuation_tables(tables)
+
+        # Validate extracted data (only for PDF files, not images)
+        if not is_image_file(pdf_path):
+            print("\nValidating extracted data...")
+            validation_report_path = output_path.parent / f"{output_path.stem}_validation.txt"
+            validation_result = validate_extracted_data(pdf_path, tables, validation_report_path)
+
+            if validation_result['status'] == 'completed':
+                accuracy = validation_result['statistics']['accuracy_percent']
+                if accuracy >= 95:
+                    print(f"  ✓ Validation complete: {accuracy:.2f}% accuracy")
+                else:
+                    print(f"  ⚠️  Validation complete: {accuracy:.2f}% accuracy - please review report")
+
+                discrepancies = validation_result['discrepancies']
+                if discrepancies['missing_in_tables'] or discrepancies['extra_in_tables']:
+                    print(f"  ⚠️  Found discrepancies - see validation report for details")
 
         # Create Excel file
         return create_excel_file(tables, output_path)
