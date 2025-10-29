@@ -62,6 +62,13 @@ def extract_table_with_claude_vision(pdf_path, client, model_name, output_path=N
                                         "type": "text",
                                         "text": """Extract all tabular data from this image and return it as a CSV format.
 
+CRITICAL ACCURACY REQUIREMENTS:
+- Read each character VERY CAREFULLY - verify every letter and digit
+- Pay special attention to similar-looking characters: 6 vs 8, O vs 0, l vs I, etc.
+- Double-check all numbers for accuracy - transcription errors are NOT acceptable
+- Verify text spelling character-by-character - do not guess or autocorrect
+- If text is unclear, examine it closely before transcribing
+
 Requirements:
 1. IDENTIFY THE TABLE STRUCTURE:
    - Ignore marginal note references (like "Note 14.", "Note 3.", etc.) that appear in the left margin - these are NOT part of the table columns
@@ -240,6 +247,13 @@ def extract_table_from_image(image_path, client, model_name):
                             {
                                 "type": "text",
                                 "text": """Extract all tabular data from this image and return it as a CSV format.
+
+CRITICAL ACCURACY REQUIREMENTS:
+- Read each character VERY CAREFULLY - verify every letter and digit
+- Pay special attention to similar-looking characters: 6 vs 8, O vs 0, l vs I, etc.
+- Double-check all numbers for accuracy - transcription errors are NOT acceptable
+- Verify text spelling character-by-character - do not guess or autocorrect
+- If text is unclear, examine it closely before transcribing
 
 Requirements:
 1. IDENTIFY THE TABLE STRUCTURE:
