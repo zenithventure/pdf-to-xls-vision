@@ -65,21 +65,31 @@ def extract_table_with_claude_vision(pdf_path, client, model_name, output_path=N
 Requirements:
 1. IDENTIFY THE TABLE STRUCTURE:
    - Ignore marginal note references (like "Note 14.", "Note 3.", etc.) that appear in the left margin - these are NOT part of the table columns
-   - Focus on the actual table columns that contain categories, line items, and numeric values
-   - The main table structure typically has: Category/Section headers, Line item descriptions, and Numeric columns (years, amounts)
+   - Focus on the actual table columns that contain line items/categories and numeric values
+   - The main table structure has: A single column for all categories and line items, followed by numeric columns (years, amounts)
 
-2. Preserve all rows and columns exactly as they appear, including:
-   - Total/summary rows with their FULL labels (e.g., "Total Other Income", "Gross Potential Income", "Effective Gross Income (EGI)", "Utilities Total", "Total Expenses", "Net Operating Income (NOI)")
-   - ALL breakdown/sub-item rows (e.g., "Parking", "Utility Reimbursement", "Pet Fee")
-   - Indented or hierarchical items must be included as separate rows
+2. OUTPUT STRUCTURE:
+   - Add a "Row_Type" column as the FIRST column to indicate the type of each row:
+     * Use "HEADER" for section/category headers (e.g., "REVENUES", "EXPENSES", "Administrative Expenses", "Utility Expenses")
+     * Use "DETAIL" for individual line items (e.g., "Gross rental income", "Manager's salary", "Electricity")
+     * Use "ROLLUP" for total rows (e.g., "Total revenues", "Total expenses", "Net Operating Income")
 
-3. HANDLE HIERARCHICAL/CATEGORY STRUCTURE:
-   - When you see a category header (e.g., "Administrative Expenses", "Utility Expenses"), note it as the current category
-   - ALL line items that follow that category header belong to that category UNTIL a new category header appears
-   - If line items appear under a category without the category name being repeated, still include the category name for those items
-   - Create a "Category" column that contains the category name for each detail and rollup row
+   - Add a "Category" column as the SECOND column containing:
+     * For HEADER rows: The section/category name (e.g., "REVENUES", "Administrative Expenses")
+     * For DETAIL rows: The line item name (e.g., "Gross rental income", "Manager's salary")
+     * For ROLLUP rows: The total label (e.g., "Total revenues", "Total expenses")
 
-4. Keep all numbers, text, and formatting characters
+   - DO NOT create separate columns for categories and line items - everything goes in the single "Category" column
+
+   - Follow with the numeric data columns (e.g., "2020", "2019")
+
+3. Preserve all rows exactly as they appear:
+   - Section headers (REVENUES, EXPENSES, etc.) → Row_Type: HEADER
+   - Category headers (Administrative Expenses, Utility Expenses, etc.) → Row_Type: HEADER
+   - Line items (Gross rental income, Manager's salary, etc.) → Row_Type: DETAIL
+   - Total rows (Total revenues, Total expenses, etc.) → Row_Type: ROLLUP
+
+4. Keep all numbers, text, and formatting characters (parentheses for negative numbers)
 
 5. Use commas to separate columns
 
@@ -87,26 +97,19 @@ Requirements:
 
 7. Include column headers if present
 
-8. Add a "Row_Type" column as the FIRST column to indicate the type of each row:
-   - Use "ROLLUP" for rows that contain words like "Total", "Gross", "Net", "Effective" and represent sums (e.g., "Total Other Income", "Total Expenses", "Net Operating Income")
-   - Use "DETAIL" for individual line items that are not totals
-   - Use "HEADER" for header/section title rows (main table title, category headers)
-
-9. CRITICAL: Look for notes, annotations, or text outside/beside the main table columns:
+8. CRITICAL: Look for notes, annotations, or text outside/beside the main table columns:
    - If you see a "NOTES AND ASSUMPTIONS" section or numbered notes on the side, create a "Notes" column as the LAST column
    - Add the full text of each note to its corresponding row ONLY if the note specifically references that row
    - If a note is general context (not tied to a specific row), leave the Notes column empty for that row
-   - Include ALL text content visible in the image, not just the numeric table data
 
-10. Return ONLY the CSV data, no explanation
+9. Return ONLY the CSV data, no explanation
 
 IMPORTANT:
-- Do NOT include marginal note references (like "Note 14.") as table columns
+- Do NOT include marginal note references (like "Note 14.") as table columns or data
+- Do NOT create separate columns for categories vs line items - use ONE "Category" column for all text
 - Do NOT skip breakdown items or sub-categories. Every line item visible in the table must appear in the output.
 - Do NOT skip total/rollup rows. These are CRITICAL and must include their full labels with all numbers.
-- Do NOT skip text annotations, notes, or explanatory text. All text content should be captured.
-- DO carry forward the category name to all items under that category, even if the category name doesn't appear on every line
-- Clearly mark which rows are ROLLUP totals vs DETAIL items using the Row_Type column.
+- Clearly mark which rows are HEADER, DETAIL, or ROLLUP using the Row_Type column.
 
 If there are multiple tables, extract the largest/main table and any associated notes."""
                                     }
@@ -241,21 +244,31 @@ def extract_table_from_image(image_path, client, model_name):
 Requirements:
 1. IDENTIFY THE TABLE STRUCTURE:
    - Ignore marginal note references (like "Note 14.", "Note 3.", etc.) that appear in the left margin - these are NOT part of the table columns
-   - Focus on the actual table columns that contain categories, line items, and numeric values
-   - The main table structure typically has: Category/Section headers, Line item descriptions, and Numeric columns (years, amounts)
+   - Focus on the actual table columns that contain line items/categories and numeric values
+   - The main table structure has: A single column for all categories and line items, followed by numeric columns (years, amounts)
 
-2. Preserve all rows and columns exactly as they appear, including:
-   - Total/summary rows with their FULL labels (e.g., "Total Other Income", "Gross Potential Income", "Effective Gross Income (EGI)", "Utilities Total", "Total Expenses", "Net Operating Income (NOI)")
-   - ALL breakdown/sub-item rows (e.g., "Parking", "Utility Reimbursement", "Pet Fee")
-   - Indented or hierarchical items must be included as separate rows
+2. OUTPUT STRUCTURE:
+   - Add a "Row_Type" column as the FIRST column to indicate the type of each row:
+     * Use "HEADER" for section/category headers (e.g., "REVENUES", "EXPENSES", "Administrative Expenses", "Utility Expenses")
+     * Use "DETAIL" for individual line items (e.g., "Gross rental income", "Manager's salary", "Electricity")
+     * Use "ROLLUP" for total rows (e.g., "Total revenues", "Total expenses", "Net Operating Income")
 
-3. HANDLE HIERARCHICAL/CATEGORY STRUCTURE:
-   - When you see a category header (e.g., "Administrative Expenses", "Utility Expenses"), note it as the current category
-   - ALL line items that follow that category header belong to that category UNTIL a new category header appears
-   - If line items appear under a category without the category name being repeated, still include the category name for those items
-   - Create a "Category" column that contains the category name for each detail and rollup row
+   - Add a "Category" column as the SECOND column containing:
+     * For HEADER rows: The section/category name (e.g., "REVENUES", "Administrative Expenses")
+     * For DETAIL rows: The line item name (e.g., "Gross rental income", "Manager's salary")
+     * For ROLLUP rows: The total label (e.g., "Total revenues", "Total expenses")
 
-4. Keep all numbers, text, and formatting characters
+   - DO NOT create separate columns for categories and line items - everything goes in the single "Category" column
+
+   - Follow with the numeric data columns (e.g., "2020", "2019")
+
+3. Preserve all rows exactly as they appear:
+   - Section headers (REVENUES, EXPENSES, etc.) → Row_Type: HEADER
+   - Category headers (Administrative Expenses, Utility Expenses, etc.) → Row_Type: HEADER
+   - Line items (Gross rental income, Manager's salary, etc.) → Row_Type: DETAIL
+   - Total rows (Total revenues, Total expenses, etc.) → Row_Type: ROLLUP
+
+4. Keep all numbers, text, and formatting characters (parentheses for negative numbers)
 
 5. Use commas to separate columns
 
@@ -263,26 +276,19 @@ Requirements:
 
 7. Include column headers if present
 
-8. Add a "Row_Type" column as the FIRST column to indicate the type of each row:
-   - Use "ROLLUP" for rows that contain words like "Total", "Gross", "Net", "Effective" and represent sums (e.g., "Total Other Income", "Total Expenses", "Net Operating Income")
-   - Use "DETAIL" for individual line items that are not totals
-   - Use "HEADER" for header/section title rows (main table title, category headers)
-
-9. CRITICAL: Look for notes, annotations, or text outside/beside the main table columns:
+8. CRITICAL: Look for notes, annotations, or text outside/beside the main table columns:
    - If you see a "NOTES AND ASSUMPTIONS" section or numbered notes on the side, create a "Notes" column as the LAST column
    - Add the full text of each note to its corresponding row ONLY if the note specifically references that row
    - If a note is general context (not tied to a specific row), leave the Notes column empty for that row
-   - Include ALL text content visible in the image, not just the numeric table data
 
-10. Return ONLY the CSV data, no explanation
+9. Return ONLY the CSV data, no explanation
 
 IMPORTANT:
-- Do NOT include marginal note references (like "Note 14.") as table columns
+- Do NOT include marginal note references (like "Note 14.") as table columns or data
+- Do NOT create separate columns for categories vs line items - use ONE "Category" column for all text
 - Do NOT skip breakdown items or sub-categories. Every line item visible in the table must appear in the output.
 - Do NOT skip total/rollup rows. These are CRITICAL and must include their full labels with all numbers.
-- Do NOT skip text annotations, notes, or explanatory text. All text content should be captured.
-- DO carry forward the category name to all items under that category, even if the category name doesn't appear on every line
-- Clearly mark which rows are ROLLUP totals vs DETAIL items using the Row_Type column.
+- Clearly mark which rows are HEADER, DETAIL, or ROLLUP using the Row_Type column.
 
 If there are multiple tables, extract the largest/main table and any associated notes."""
                             }
