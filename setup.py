@@ -19,9 +19,9 @@ if requirements_file.exists():
 
 setup(
     name="pdf-to-xls-vision",
-    version="1.0.4",
-    author="Your Name",
-    author_email="your.email@example.com",
+    version="1.0.5",
+    author="Sze Wong",
+    author_email="swong@szewong.com",
     description="Convert PDF and image tables to Excel using Claude Vision API with automatic validation and multi-page merging",
     long_description=long_description,
     long_description_content_type="text/markdown",
