@@ -5,8 +5,25 @@ import anthropic
 
 from .config import get_api_key, get_model_name
 from .pdf_detection import pdf_is_image_based
-from .table_extraction import extract_table_with_claude_vision, extract_tables_from_text_pdf
+from .table_extraction import extract_table_with_claude_vision, extract_tables_from_text_pdf, extract_table_from_image
 from .excel_writer import create_excel_file
+
+
+# Supported image file extensions
+IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.tiff', '.tif'}
+
+
+def is_image_file(file_path):
+    """Check if file is a supported image format.
+
+    Args:
+        file_path: Path to file (str or Path)
+
+    Returns:
+        bool: True if file has a supported image extension
+    """
+    file_path = Path(file_path)
+    return file_path.suffix.lower() in IMAGE_EXTENSIONS
 
 
 def convert_pdf_to_excel(
@@ -18,16 +35,16 @@ def convert_pdf_to_excel(
     api_key=None,
     model_name=None
 ):
-    """Convert PDF to Excel file.
+    """Convert PDF or image file to Excel file.
 
     Uses text extraction for text-based PDFs, Vision API with rotation detection
-    for image-based PDFs.
+    for image-based PDFs and image files (.jpg, .jpeg, .png, .tiff, .tif).
 
     Args:
-        pdf_path: Path to PDF file (str or Path)
+        pdf_path: Path to PDF or image file (str or Path)
         output_path: Optional output Excel file path (str or Path)
         output_dir: Optional output directory (str or Path)
-        save_every: For large PDFs, save progress every N pages (default: 10)
+        save_every: For large PDFs, save progress every N pages (default: 10, ignored for images)
         force_vision: Force Vision API extraction even for text-based PDFs (default: False)
         api_key: Optional Anthropic API key (uses env var if not provided)
         model_name: Optional Claude model name (uses env var if not provided)
@@ -36,13 +53,13 @@ def convert_pdf_to_excel(
         Path: Path to the created Excel file, or None if no tables found
 
     Raises:
-        FileNotFoundError: If PDF file does not exist
+        FileNotFoundError: If file does not exist
         ValueError: If API key is required but not found
     """
     pdf_path = Path(pdf_path)
 
     if not pdf_path.exists():
-        raise FileNotFoundError(f"PDF file not found: {pdf_path}")
+        raise FileNotFoundError(f"File not found: {pdf_path}")
 
     if output_path:
         output_path = Path(output_path)
@@ -58,15 +75,10 @@ def convert_pdf_to_excel(
     print(f"Output: {output_path}")
 
     try:
-        # Check if PDF is image-based (scanned/photos)
-        is_image_based = pdf_is_image_based(pdf_path)
-
-        if force_vision or is_image_based:
-            # Image-based PDF or forced Vision API: use Vision API with rotation detection
-            if force_vision and not is_image_based:
-                print("  Text-based PDF, using Vision API (forced)...")
-            else:
-                print("  Image-based PDF detected, using Vision API with rotation detection...")
+        # Check if input is an image file
+        if is_image_file(pdf_path):
+            # Image file: use Vision API directly
+            print("  Image file detected, using Vision API...")
 
             # Get API configuration
             if not api_key:
@@ -75,20 +87,17 @@ def convert_pdf_to_excel(
                 model_name = get_model_name()
 
             client = anthropic.Anthropic(api_key=api_key)
-            tables = extract_table_with_claude_vision(pdf_path, client, model_name, output_path, save_every)
+            tables = extract_table_from_image(pdf_path, client, model_name)
         else:
-            # Text-based PDF: use direct extraction (fast, no API needed)
-            print("  Text-based PDF, using direct extraction...")
-            tables, quality_issues_detected = extract_tables_from_text_pdf(pdf_path)
+            # PDF file: check if it's image-based or text-based
+            is_image_based = pdf_is_image_based(pdf_path)
 
-            # Auto-retry with Vision API if quality issues detected OR no tables found
-            if quality_issues_detected or not tables:
-                if quality_issues_detected:
-                    print("\n  ⚠️  Quality issues detected in text extraction!")
-                    print("  🔄 Retrying with Vision API for better accuracy...\n")
+            if force_vision or is_image_based:
+                # Image-based PDF or forced Vision API: use Vision API with rotation detection
+                if force_vision and not is_image_based:
+                    print("  Text-based PDF, using Vision API (forced)...")
                 else:
-                    print("\n  ⚠️  No tables found with text extraction!")
-                    print("  🔄 Retrying with Vision API...\n")
+                    print("  Image-based PDF detected, using Vision API with rotation detection...")
 
                 # Get API configuration
                 if not api_key:
@@ -98,6 +107,28 @@ def convert_pdf_to_excel(
 
                 client = anthropic.Anthropic(api_key=api_key)
                 tables = extract_table_with_claude_vision(pdf_path, client, model_name, output_path, save_every)
+            else:
+                # Text-based PDF: use direct extraction (fast, no API needed)
+                print("  Text-based PDF, using direct extraction...")
+                tables, quality_issues_detected = extract_tables_from_text_pdf(pdf_path)
+
+                # Auto-retry with Vision API if quality issues detected OR no tables found
+                if quality_issues_detected or not tables:
+                    if quality_issues_detected:
+                        print("\n  ⚠️  Quality issues detected in text extraction!")
+                        print("  🔄 Retrying with Vision API for better accuracy...\n")
+                    else:
+                        print("\n  ⚠️  No tables found with text extraction!")
+                        print("  🔄 Retrying with Vision API...\n")
+
+                    # Get API configuration
+                    if not api_key:
+                        api_key = get_api_key()
+                    if not model_name:
+                        model_name = get_model_name()
+
+                    client = anthropic.Anthropic(api_key=api_key)
+                    tables = extract_table_with_claude_vision(pdf_path, client, model_name, output_path, save_every)
 
         if not tables:
             print(f"Warning: No tables found in {pdf_path}")
@@ -121,12 +152,13 @@ def batch_convert_directory(
     api_key=None,
     model_name=None
 ):
-    """Batch convert PDFs in directory.
+    """Batch convert PDFs and image files in directory.
 
-    Auto-detects text vs image-based PDFs.
+    Auto-detects text vs image-based PDFs. Processes all supported image formats
+    (.jpg, .jpeg, .png, .tiff, .tif) using Vision API.
 
     Args:
-        input_dir: Directory containing PDF files (str or Path)
+        input_dir: Directory containing PDF and/or image files (str or Path)
         output_dir: Optional output directory (str or Path)
         recursive: Recursively search subdirectories (default: False)
         force_vision: Force Vision API extraction for all PDFs (default: False)
@@ -144,50 +176,62 @@ def batch_convert_directory(
     if not input_dir.exists():
         raise FileNotFoundError(f"Directory not found: {input_dir}")
 
+    # Find all PDF files
     if recursive:
         pdf_files = list(input_dir.rglob("*.pdf"))
     else:
         pdf_files = list(input_dir.glob("*.pdf"))
 
-    # Filter out zone identifier files
-    pdf_files = [f for f in pdf_files if ':Zone.Identifier' not in str(f)]
+    # Find all image files
+    image_files = []
+    for ext in IMAGE_EXTENSIONS:
+        if recursive:
+            image_files.extend(input_dir.rglob(f"*{ext}"))
+        else:
+            image_files.extend(input_dir.glob(f"*{ext}"))
 
-    if not pdf_files:
-        print(f"No PDF files found in {input_dir}")
+    # Combine all files
+    all_files = pdf_files + image_files
+
+    # Filter out zone identifier files
+    all_files = [f for f in all_files if ':Zone.Identifier' not in str(f)]
+
+    if not all_files:
+        print(f"No PDF or image files found in {input_dir}")
         return {'success': [], 'failed': []}
 
-    print(f"Found {len(pdf_files)} PDF file(s)")
+    print(f"Found {len(all_files)} file(s) ({len(pdf_files)} PDF, {len(image_files)} image)")
     print("=" * 70)
 
     success_list = []
     failed_list = []
 
-    for pdf_path in pdf_files:
+    for file_path in all_files:
         try:
             if output_dir and recursive:
-                rel_path = pdf_path.relative_to(input_dir)
+                rel_path = file_path.relative_to(input_dir)
                 out_dir = Path(output_dir) / rel_path.parent
             else:
-                out_dir = output_dir or pdf_path.parent
+                out_dir = output_dir or file_path.parent
 
             result = convert_pdf_to_excel(
-                pdf_path,
+                file_path,
                 output_dir=out_dir,
                 force_vision=force_vision,
                 api_key=api_key,
                 model_name=model_name
             )
             if result:
-                success_list.append(pdf_path)
+                success_list.append(file_path)
             print("=" * 70)
 
         except Exception as e:
-            print(f"Failed to convert {pdf_path}: {e}")
-            failed_list.append(pdf_path)
+            print(f"Failed to convert {file_path}: {e}")
+            failed_list.append(file_path)
             print("=" * 70)
 
     print(f"\n✓ Conversion complete!")
-    print(f"  Successful: {len(success_list)}/{len(pdf_files)}")
+    print(f"  Successful: {len(success_list)}/{len(all_files)}")
 
     if failed_list:
         print(f"\n✗ Failed files ({len(failed_list)}):")

@@ -12,9 +12,9 @@ from pdf_to_xls.config import get_api_key
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
-        description="PDF to Excel converter with auto-detection (text extraction or Vision API with rotation)"
+        description="PDF/Image to Excel converter with auto-detection (text extraction or Vision API with rotation)"
     )
-    parser.add_argument("input", help="PDF file or directory")
+    parser.add_argument("input", help="PDF/image file or directory (supports .pdf, .jpg, .jpeg, .png, .tiff, .tif)")
     parser.add_argument("-o", "--output", help="Output file or directory")
     parser.add_argument(
         "-r", "--recursive",

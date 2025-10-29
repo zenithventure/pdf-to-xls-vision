@@ -4,7 +4,7 @@ from io import StringIO
 import pandas as pd
 import pdfplumber
 
-from .image_processing import convert_pdf_page_to_image
+from .image_processing import convert_pdf_page_to_image, convert_image_file_to_base64
 from .data_cleaning import clean_dataframe_parentheses, clean_malformed_parentheses
 from .quality_check import detect_quality_issues
 
@@ -164,6 +164,158 @@ If there are multiple tables, extract the largest/main table and any associated 
                 # Save progress incrementally every N pages
                 if output_path and save_every > 0 and len(tables) > 0 and len(tables) % save_every == 0:
                     save_excel_incremental(tables, output_path, page_num, num_pages)
+
+    except Exception as e:
+        print(f"  Vision extraction failed: {e}")
+        import traceback
+        traceback.print_exc()
+
+    return tables
+
+
+def extract_table_from_image(image_path, client, model_name):
+    """Extract table from image file using Claude Vision API.
+
+    Args:
+        image_path: Path to image file (.jpg, .jpeg, .png, .tiff, .tif)
+        client: Anthropic API client
+        model_name: Claude model name
+
+    Returns:
+        list: List of table dictionaries with 'dataframe', 'page', and 'table' keys
+    """
+    print(f"  Using Claude Vision API ({model_name}) for extraction...")
+    tables = []
+
+    try:
+        print(f"  Processing image with Claude Vision...")
+
+        # Convert image to base64
+        image_data = convert_image_file_to_base64(image_path)
+
+        if not image_data:
+            print(f"    Could not convert image to base64")
+            return tables
+
+        # Call Claude Vision API
+        try:
+            message = client.messages.create(
+                model=model_name,
+                max_tokens=4096,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": "image/png",
+                                    "data": image_data,
+                                },
+                            },
+                            {
+                                "type": "text",
+                                "text": """Extract all tabular data from this image and return it as a CSV format.
+
+Requirements:
+1. Preserve all rows and columns exactly as they appear, including:
+   - Total/summary rows with their FULL labels (e.g., "Total Other Income", "Gross Potential Income", "Effective Gross Income (EGI)", "Utilities Total", "Total Expenses", "Net Operating Income (NOI)")
+   - ALL breakdown/sub-item rows (e.g., "Parking", "Utility Reimbursement", "Pet Fee")
+   - Indented or hierarchical items must be included as separate rows
+2. Keep all numbers, text, and formatting characters
+3. Use commas to separate columns
+4. Put values with commas inside quotes
+5. Include column headers if present
+6. Add a "Row_Type" column as the FIRST column to indicate the type of each row:
+   - Use "ROLLUP" for rows that contain words like "Total", "Gross", "Net", "Effective" and represent sums (e.g., "Total Other Income", "Total Expenses", "Net Operating Income")
+   - Use "DETAIL" for individual line items that are not totals
+   - Use "HEADER" for header/section title rows
+7. CRITICAL: Look for notes, annotations, or text outside/beside the main table columns:
+   - If you see a "NOTES AND ASSUMPTIONS" section or numbered notes on the side, create a "Notes" column as the LAST column
+   - Add the full text of each note to its corresponding row ONLY if the note specifically references that row
+   - If a note is general context (not tied to a specific row), leave the Notes column empty for that row
+   - Include ALL text content visible in the image, not just the numeric table data
+8. Return ONLY the CSV data, no explanation
+
+IMPORTANT:
+- Do NOT skip breakdown items or sub-categories. Every line item visible in the table must appear in the output.
+- Do NOT skip total/rollup rows. These are CRITICAL and must include their full labels with all numbers.
+- Do NOT skip text annotations, notes, or explanatory text. All text content should be captured.
+- Clearly mark which rows are ROLLUP totals vs DETAIL items using the Row_Type column.
+
+If there are multiple tables, extract the largest/main table and any associated notes."""
+                            }
+                        ],
+                    }
+                ],
+            )
+
+            # Extract CSV from response
+            csv_content = message.content[0].text.strip()
+
+            # Remove markdown code blocks if present
+            if csv_content.startswith('```'):
+                lines = csv_content.split('\n')
+                csv_content = '\n'.join(lines[1:-1]) if len(lines) > 2 else csv_content
+
+            # Improved validation: Check if content is valid CSV with actual table data
+            if csv_content and csv_content.strip():
+                # Try to parse as CSV to validate it's actual table data
+                df = None
+                try:
+                    # Try standard CSV parsing
+                    df = pd.read_csv(StringIO(csv_content))
+                except Exception as e:
+                    # If CSV parsing fails, try with on_bad_lines='skip'
+                    try:
+                        df = pd.read_csv(StringIO(csv_content), on_bad_lines='skip')
+                    except Exception:
+                        # Last resort: try reading as TSV or with different settings
+                        try:
+                            df = pd.read_csv(StringIO(csv_content), sep=None, engine='python')
+                        except Exception:
+                            print(f"    CSV parsing error: {e}")
+                            return tables
+
+                # Check if it has at least one cell of data
+                if df is not None and not df.empty and df.shape[0] > 0 and df.shape[1] > 0:
+                    # Valid table - proceed with data cleaning
+
+                    # Clean up
+                    df = df.dropna(how='all').dropna(axis=1, how='all')
+
+                    # Fix typewriter parenthesis artifacts (only after successful parsing)
+                    # This fixes values like "3,094)(" -> "(3,094)"
+                    try:
+                        df = clean_dataframe_parentheses(df)
+                    except Exception as e:
+                        print(f"    Warning: Could not clean cascading parentheses: {e}")
+
+                    # Fix malformed parentheses within individual cells
+                    # This fixes OCR errors like "( 297)" -> "(297)" and "( 4410" -> "(4410)"
+                    try:
+                        df = clean_malformed_parentheses(df)
+                    except Exception as e:
+                        print(f"    Warning: Could not clean malformed parentheses: {e}")
+
+                    if not df.empty and len(df) > 0:
+                        tables.append({
+                            'dataframe': df,
+                            'page': 1,  # Image files are single "page"
+                            'table': 1
+                        })
+                        print(f"    ✓ Extracted table: {len(df)} rows x {len(df.columns)} columns")
+                    else:
+                        print(f"    No valid table data in image")
+                else:
+                    print(f"    No table content found in image")
+            else:
+                print(f"    No table content found in image")
+
+        except Exception as e:
+            print(f"    API error: {e}")
+            return tables
 
     except Exception as e:
         print(f"  Vision extraction failed: {e}")

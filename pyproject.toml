@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pdf-to-xls-vision"
-version = "1.0.0"
-description = "Convert PDF tables to Excel using Claude Vision API with automatic rotation detection"
+version = "1.0.2"
+description = "Convert PDF and image tables to Excel using Claude Vision API with automatic rotation detection"
 readme = "README.md"
 requires-python = ">=3.7"
 license = {text = "MIT"}
