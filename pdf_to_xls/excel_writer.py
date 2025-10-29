@@ -57,11 +57,18 @@ def merge_continuation_tables(tables):
                 first_row_type = str(next_df.iloc[0]['Row_Type']).strip().upper()
                 starts_with_detail = first_row_type == 'DETAIL'
 
-            # Check for generic column headers
+            # Check for generic column headers (Col1, Col2, Column1, Column2, etc.)
             has_generic_headers = False
             next_columns_str = [str(col) for col in next_df.columns]
-            if any(col.startswith('Col') and col[3:].isdigit() for col in next_columns_str if col not in ['Row_Type', 'Category']):
-                has_generic_headers = True
+            # Check for patterns like "Col1", "Col2" or "Column1", "Column2"
+            for col in next_columns_str:
+                if col in ['Row_Type', 'Category']:
+                    continue
+                # Match patterns: Col + digits OR Column + digits
+                if (col.startswith('Col') and col[3:].isdigit()) or \
+                   (col.startswith('Column') and col[6:].isdigit()):
+                    has_generic_headers = True
+                    break
 
             if is_consecutive and same_column_count and starts_with_detail and has_generic_headers:
                 continuation_pages.append(next_table)
