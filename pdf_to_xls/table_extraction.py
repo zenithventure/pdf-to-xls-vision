@@ -74,6 +74,13 @@ Requirements:
    - Ignore marginal note references (like "Note 14.", "Note 3.", etc.) that appear in the left margin - these are NOT part of the table columns
    - Focus on the actual table columns that contain line items/categories and numeric values
    - The main table structure has: A single column for all categories and line items, followed by numeric columns (years, amounts)
+   - CRITICAL: Watch for MULTIPLE SUB-COLUMNS per year/period:
+     * Some tables have 2+ columns under each year header (e.g., percentage + amount, budget + actual, quantity + price)
+     * Each sub-column MUST be a separate column in the CSV output
+     * Create descriptive column names that identify BOTH the period AND the type
+     * Examples: "2022_Percent,2022_Amount" or "2023_Budget,2023_Actual" or "Q1_Units,Q1_Price"
+     * Look for sub-headers, data patterns, or $ signs to identify column types
+     * If no sub-header exists, use descriptive names based on the data (e.g., "2022_Col1", "2022_Col2")
 
 2. OUTPUT STRUCTURE:
    - Add a "Row_Type" column as the FIRST column to indicate the type of each row:
@@ -260,6 +267,13 @@ Requirements:
    - Ignore marginal note references (like "Note 14.", "Note 3.", etc.) that appear in the left margin - these are NOT part of the table columns
    - Focus on the actual table columns that contain line items/categories and numeric values
    - The main table structure has: A single column for all categories and line items, followed by numeric columns (years, amounts)
+   - CRITICAL: Watch for MULTIPLE SUB-COLUMNS per year/period:
+     * Some tables have 2+ columns under each year header (e.g., percentage + amount, budget + actual, quantity + price)
+     * Each sub-column MUST be a separate column in the CSV output
+     * Create descriptive column names that identify BOTH the period AND the type
+     * Examples: "2022_Percent,2022_Amount" or "2023_Budget,2023_Actual" or "Q1_Units,Q1_Price"
+     * Look for sub-headers, data patterns, or $ signs to identify column types
+     * If no sub-header exists, use descriptive names based on the data (e.g., "2022_Col1", "2022_Col2")
 
 2. OUTPUT STRUCTURE:
    - Add a "Row_Type" column as the FIRST column to indicate the type of each row:
