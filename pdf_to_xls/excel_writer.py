@@ -6,6 +6,106 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 from openpyxl.utils import get_column_letter
 
 
+def merge_continuation_tables(tables):
+    """Merge tables that are continuations of each other across pages.
+
+    Detects when a table continues across multiple pages and merges them into
+    a single table. A continuation is detected when:
+    1. Pages are consecutive (N, N+1, N+2, etc.)
+    2. Same column count
+    3. Continuation page starts with DETAIL rows (not a new table header)
+    4. Column headers are generic (Col1, Col2, etc.) indicating continuation
+
+    Args:
+        tables: List of table dictionaries with 'dataframe', 'page', and 'table' keys
+
+    Returns:
+        list: New list of tables with continuations merged
+    """
+    if len(tables) <= 1:
+        return tables
+
+    merged_tables = []
+    i = 0
+
+    while i < len(tables):
+        current_table = tables[i]
+        current_df = current_table['dataframe']
+        current_page = current_table['page']
+
+        # Look ahead to see if next pages are continuations
+        continuation_pages = [current_table]
+        j = i + 1
+
+        while j < len(tables):
+            next_table = tables[j]
+            next_df = next_table['dataframe']
+            next_page = next_table['page']
+
+            # Check if this is a continuation:
+            # 1. Consecutive page number
+            # 2. Same column count
+            # 3. Starts with DETAIL row (not a new table header like "REVENUES")
+            # 4. Has generic column headers (Col1, Col2, etc.) or same headers as first page
+
+            is_consecutive = (next_page == current_page + (j - i))
+            same_column_count = (len(next_df.columns) == len(current_df.columns))
+
+            # Check if first data row is DETAIL (not starting a new table)
+            starts_with_detail = False
+            if len(next_df) > 0 and 'Row_Type' in next_df.columns:
+                first_row_type = str(next_df.iloc[0]['Row_Type']).strip().upper()
+                starts_with_detail = first_row_type == 'DETAIL'
+
+            # Check for generic column headers
+            has_generic_headers = False
+            next_columns_str = [str(col) for col in next_df.columns]
+            if any(col.startswith('Col') and col[3:].isdigit() for col in next_columns_str if col not in ['Row_Type', 'Category']):
+                has_generic_headers = True
+
+            if is_consecutive and same_column_count and starts_with_detail and has_generic_headers:
+                continuation_pages.append(next_table)
+                j += 1
+            else:
+                break
+
+        # If we found continuation pages, merge them
+        if len(continuation_pages) > 1:
+            print(f"  Detected table continuation across pages {current_page}-{continuation_pages[-1]['page']}, merging...")
+
+            # Start with the first page's dataframe (has proper headers)
+            merged_df = continuation_pages[0]['dataframe'].copy()
+
+            # Append data from continuation pages (skip their header rows)
+            for cont_table in continuation_pages[1:]:
+                cont_df = cont_table['dataframe'].copy()
+
+                # Rename continuation page columns to match first page
+                # The columns should be in the same order
+                if len(cont_df.columns) == len(merged_df.columns):
+                    cont_df.columns = merged_df.columns
+
+                    # Append the data (all rows since we're using the first page's headers)
+                    merged_df = pd.concat([merged_df, cont_df], ignore_index=True)
+
+            # Create merged table entry
+            merged_table = {
+                'dataframe': merged_df,
+                'page': current_page,
+                'table': current_table['table']
+            }
+            merged_tables.append(merged_table)
+
+            # Skip past the continuation pages
+            i = j
+        else:
+            # No continuation, keep as-is
+            merged_tables.append(current_table)
+            i += 1
+
+    return merged_tables
+
+
 def identify_rollup_rows(df):
     """Identify rollup rows based on naming patterns and Row_Type column.
 

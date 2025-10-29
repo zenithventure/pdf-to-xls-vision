@@ -6,7 +6,7 @@ import anthropic
 from .config import get_api_key, get_model_name
 from .pdf_detection import pdf_is_image_based
 from .table_extraction import extract_table_with_claude_vision, extract_tables_from_text_pdf, extract_table_from_image
-from .excel_writer import create_excel_file
+from .excel_writer import create_excel_file, merge_continuation_tables
 
 
 # Supported image file extensions
@@ -133,6 +133,9 @@ def convert_pdf_to_excel(
         if not tables:
             print(f"Warning: No tables found in {pdf_path}")
             return None
+
+        # Merge continuation tables (tables that span multiple pages)
+        tables = merge_continuation_tables(tables)
 
         # Create Excel file
         return create_excel_file(tables, output_path)
