@@ -186,53 +186,83 @@ def validate_extracted_data(pdf_path, tables, output_path=None):
             'accuracy_percent': round(accuracy, 2)
         },
         'discrepancies': {
-            'missing_in_tables': missing_in_tables[:20],  # Limit to top 20
-            'extra_in_tables': extra_in_tables[:20]
+            'missing_in_tables': missing_in_tables,  # Show all discrepancies
+            'extra_in_tables': extra_in_tables
         }
     }
 
-    # Generate text report if output path provided
+    # Generate Markdown report if output path provided
     if output_path:
         output_path = Path(output_path)
+        # Change extension to .md
+        output_path = output_path.parent / f"{output_path.stem}.md"
+
         report_lines = []
-        report_lines.append("=" * 80)
-        report_lines.append("DATA VALIDATION REPORT")
-        report_lines.append("=" * 80)
-        report_lines.append(f"Source PDF: {pdf_path.name}")
-        report_lines.append(f"Total numbers in PDF: {total_pdf_numbers}")
-        report_lines.append(f"Total numbers in tables: {total_table_numbers}")
-        report_lines.append(f"Matching numbers: {matches}")
-        report_lines.append(f"Accuracy: {accuracy:.2f}%")
+        report_lines.append("# Data Validation Report")
+        report_lines.append("")
+        report_lines.append(f"**Source PDF:** `{pdf_path.name}`")
+        report_lines.append("")
+        report_lines.append("## Summary")
+        report_lines.append("")
+        report_lines.append(f"| Metric | Count |")
+        report_lines.append(f"|--------|-------|")
+        report_lines.append(f"| Total numbers in PDF | {total_pdf_numbers:,} |")
+        report_lines.append(f"| Total numbers in tables | {total_table_numbers:,} |")
+        report_lines.append(f"| Matching numbers | {matches:,} |")
+        report_lines.append(f"| **Accuracy** | **{accuracy:.2f}%** |")
         report_lines.append("")
 
         if missing_in_tables:
-            report_lines.append("⚠️  NUMBERS IN PDF BUT MISSING/UNDERCOUNTED IN TABLES:")
-            report_lines.append("-" * 80)
-            for item in missing_in_tables[:20]:
-                report_lines.append(f"  {item['number']:>15} | PDF: {item['pdf_count']:>3}x | Table: {item['table_count']:>3}x")
-            if len(missing_in_tables) > 20:
-                report_lines.append(f"  ... and {len(missing_in_tables) - 20} more")
+            report_lines.append("## ⚠️ Numbers in PDF but Missing/Undercounted in Tables")
+            report_lines.append("")
+            report_lines.append(f"**Found {len(missing_in_tables)} discrepancies**")
+            report_lines.append("")
+            report_lines.append("| Number | PDF Count | Table Count | Difference |")
+            report_lines.append("|--------|-----------|-------------|------------|")
+            for item in missing_in_tables:
+                diff = item['pdf_count'] - item['table_count']
+                report_lines.append(f"| {item['number']:>15} | {item['pdf_count']:>9} | {item['table_count']:>11} | {diff:>10} |")
             report_lines.append("")
 
         if extra_in_tables:
-            report_lines.append("⚠️  NUMBERS IN TABLES BUT MISSING/UNDERCOUNTED IN PDF:")
-            report_lines.append("-" * 80)
-            for item in extra_in_tables[:20]:
-                report_lines.append(f"  {item['number']:>15} | PDF: {item['pdf_count']:>3}x | Table: {item['table_count']:>3}x")
-            if len(extra_in_tables) > 20:
-                report_lines.append(f"  ... and {len(extra_in_tables) - 20} more")
+            report_lines.append("## ⚠️ Numbers in Tables but Missing/Undercounted in PDF")
+            report_lines.append("")
+            report_lines.append(f"**Found {len(extra_in_tables)} discrepancies**")
+            report_lines.append("")
+            report_lines.append("| Number | PDF Count | Table Count | Difference |")
+            report_lines.append("|--------|-----------|-------------|------------|")
+            for item in extra_in_tables:
+                diff = item['table_count'] - item['pdf_count']
+                report_lines.append(f"| {item['number']:>15} | {item['pdf_count']:>9} | {item['table_count']:>11} | {diff:>10} |")
             report_lines.append("")
 
         if not missing_in_tables and not extra_in_tables:
-            report_lines.append("✅ No discrepancies detected! All numbers match.")
+            report_lines.append("## ✅ Validation Passed")
+            report_lines.append("")
+            report_lines.append("No discrepancies detected! All numbers match.")
             report_lines.append("")
         else:
-            report_lines.append("RECOMMENDATION:")
-            report_lines.append("  Please manually verify the flagged numbers in the Excel output.")
-            report_lines.append("  Cross-reference with the source PDF to correct any errors.")
+            report_lines.append("## 📋 Recommendation")
+            report_lines.append("")
+            report_lines.append("Please manually verify the flagged numbers in the Excel output.")
+            report_lines.append("Cross-reference with the source PDF to correct any errors.")
+            report_lines.append("")
+            report_lines.append("### How to Use This Report")
+            report_lines.append("")
+            report_lines.append("1. **Missing in Tables**: These numbers appear in the PDF but are missing or appear fewer times in your extracted tables. Check if they were:")
+            report_lines.append("   - Misread by OCR (e.g., 6 read as 8)")
+            report_lines.append("   - Skipped during extraction")
+            report_lines.append("   - Part of headers or text that shouldn't be in tables")
+            report_lines.append("")
+            report_lines.append("2. **Extra in Tables**: These numbers appear in your tables but don't match the PDF. Check if they are:")
+            report_lines.append("   - OCR errors (incorrect readings)")
+            report_lines.append("   - Duplicates")
+            report_lines.append("   - Numbers from headers mistakenly included")
             report_lines.append("")
 
-        report_lines.append("=" * 80)
+        report_lines.append("---")
+        report_lines.append("")
+        report_lines.append(f"*Report generated automatically by pdf-to-xls-vision*")
 
         # Write report
         with open(output_path, 'w', encoding='utf-8') as f:

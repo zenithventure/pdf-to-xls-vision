@@ -141,7 +141,7 @@ def convert_pdf_to_excel(
         # Validate extracted data (only for PDF files, not images)
         if not is_image_file(pdf_path):
             print("\nValidating extracted data...")
-            validation_report_path = output_path.parent / f"{output_path.stem}_validation.txt"
+            validation_report_path = output_path.parent / f"{output_path.stem}_validation.md"
             validation_result = validate_extracted_data(pdf_path, tables, validation_report_path)
 
             if validation_result['status'] == 'completed':
