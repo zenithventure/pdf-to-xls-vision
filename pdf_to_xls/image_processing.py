@@ -185,12 +185,16 @@ def convert_pdf_page_to_image(pdf_path, page_num):
         page = doc[page_num - 1]
 
         # Render page to image at high resolution
-        mat = fitz.Matrix(2.0, 2.0)  # 2x zoom for better quality
+        # Use 4x zoom for better OCR accuracy, especially for tables with many columns
+        # Higher resolution is critical for wide tables with small text
+        mat = fitz.Matrix(4.0, 4.0)  # 4x zoom for better quality
         pix = page.get_pixmap(matrix=mat)
 
         # Convert to PIL Image
         img_bytes = pix.tobytes("png")
         img = Image.open(BytesIO(img_bytes))
+
+        print(f"    Initial image size: {img.width}x{img.height} pixels")
 
         # Close document
         doc.close()
@@ -212,11 +216,14 @@ def convert_pdf_page_to_image(pdf_path, page_num):
 
         # Resize image if needed to fit within API size limit
         img = resize_image_for_api(img)
+        print(f"    Final image size: {img.width}x{img.height} pixels")
 
         # Convert PIL Image to PNG bytes
         output = BytesIO()
         img.save(output, format='PNG')
         final_img_data = output.getvalue()
+        final_size_mb = len(base64.standard_b64encode(final_img_data)) / (1024 * 1024)
+        print(f"    Final encoded size: {final_size_mb:.2f} MB")
 
         # Encode to base64
         return base64.standard_b64encode(final_img_data).decode('utf-8')
