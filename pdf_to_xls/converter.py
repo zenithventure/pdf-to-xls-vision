@@ -135,7 +135,35 @@ def convert_pdf_to_excel(
             print(f"Warning: No tables found in {pdf_path}")
             return None
 
+        # Validate page count vs sheet count before merging
+        # Each PDF page should generate exactly one Excel sheet initially
+        # Discrepancy indicates non-deterministic extraction (issue #23)
+        if not is_image_file(pdf_path):
+            import pdfplumber
+            try:
+                with pdfplumber.open(pdf_path) as pdf:
+                    expected_page_count = len(pdf.pages)
+                    actual_sheet_count = len(tables)
+
+                    print(f"\nTable extraction summary:")
+                    print(f"  PDF pages: {expected_page_count}")
+                    print(f"  Extracted sheets: {actual_sheet_count}")
+
+                    if actual_sheet_count != expected_page_count:
+                        print(f"  ⚠️  WARNING: Sheet count mismatch detected!")
+                        print(f"      Expected {expected_page_count} sheets (one per page) but got {actual_sheet_count}")
+                        print(f"      This indicates non-deterministic extraction behavior.")
+                        if actual_sheet_count < expected_page_count:
+                            print(f"      Some pages may have missing tables.")
+                        else:
+                            print(f"      Some pages may have produced multiple tables.")
+                    else:
+                        print(f"  ✓ Sheet count matches page count")
+            except Exception as e:
+                print(f"  Warning: Could not validate page count: {e}")
+
         # Merge continuation tables (tables that span multiple pages)
+        # Merge logic detects continuations by generic headers (Col1, Column1) and matching column counts
         tables = merge_continuation_tables(tables)
 
         # Validate extracted data (only for PDF files, not images)
