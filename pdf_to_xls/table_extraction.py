@@ -46,6 +46,7 @@ def extract_table_with_claude_vision(pdf_path, client, model_name, output_path=N
                     message = client.messages.create(
                         model=model_name,
                         max_tokens=4096,
+                        temperature=0,  # Ensures deterministic output for consistent table extraction
                         messages=[
                             {
                                 "role": "user",
